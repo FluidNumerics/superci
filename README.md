@@ -16,7 +16,9 @@ The intention of this package is to provide you with some tooling to accomplish 
 
 ## Get Started
 
-You will need a [Github Personal Access Token](https://github.com/settings/tokens) associated with your account or organization.
+You will need a [Github Personal Access Token](https://github.com/settings/tokens) associated with your account or organization. We recommend using a fine-grained access token with the following permissions
+*  Read access to code and metadata
+*  Read and Write access to actions, commit statuses, discussions, issues, and pull requests
 
 > [!NOTE]
 > This repository uses [PyGithub](https://pygithub.readthedocs.io/en/stable/introduction.html) as a dependency in order to integrate with the Github API.
