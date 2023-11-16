@@ -1,10 +1,7 @@
 steps:
   - name : "Build, Test, and get coverage on Noether"
     sbatch_options: 
-      - "--partition=mi210"
-      - "--exclusive"
-      - "--gpus=1"
-      - "-N1"
+      - "--ntasks=1"
       - "--time=5:00"
     modules:
     env:
