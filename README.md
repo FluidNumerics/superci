@@ -42,18 +42,18 @@ conda create -n superci python=3.9
 conda activate superci
 pip install -r requirements.txt
 ```
-3. Edit the `examples/armory.yml` file. Change the `config.github_access_token_path` to the path on your system that you have save your Github Private Access Token to. Change the `config.workspace_root` to a path on your system where you have read and write access to. Change the `config.repository` to a repository that you have access to. Change the `config.branch` to a base branch where you would like to require tests to run before merging.
+3. Edit the `examples/demo.yml` file. Change the `config.github_access_token_path` to the path on your system that you have save your Github Private Access Token to. Change the `config.workspace_root` to a path on your system where you have read and write access to. Change the `config.repository` to a repository that you have access to. Change the `config.branch` to a base branch where you would like to require tests to run before merging.
 
 4. On your repository, create a branch and open a pull request to the base branch specified in `config.branch`
 
 5. Add a comment that just says `/superci`
 
-5. Try the demo
+6. Try the demo
 ```
 python src/superci-github.py
 ```
 
-5. If it breaks, you have some ideas, or you hate me, open an issue
+7. If it breaks or you have some ideas [open an issue](https://github.com/FluidNumerics/superci/issues/new)
 
 
 ## SuperCI schema
@@ -68,12 +68,12 @@ Like other CI systems, superci will ingest a markdown file (here, we use yaml) t
 * `config.repository` - string - The repository hosted on github (in `{owner}/{repo}` format) that you want to test
 * `config.branch` - string - The head branch that requires testing before merging into with a pull request
 * `config.github_access_token_path` - string - The full path on your HPC cluster where your github access token is located
-* `config.workspace_root` - string - The directory where superci logs are written and where all of your build/test temporary working directories are created.
+* `config.workspace_root` - string - The directory where where all of your build/test temporary working directories are created.
 
+Log files for `superci` are written under `${HOME}/.superci/logs`
 
 
 ## Current Limitations
 * There's tons of hard-coded stuff at the moment - this repository is currently set up to provide proof of concept in order to promote discussion and collaboration with others before going too far.
-* Currently under development and hard-wired to create batch files for the `examples/armory.yml` input file
 * Currently, we do not check for a list of repository owners/admins to verify authorized users who wrote the `/superci` comment. This is in the works!
 * We can only run tests with a single step. More sophisticated tracking of job success and failure is necessary for jobs with dependencies to support multi-step builds.

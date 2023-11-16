@@ -9,45 +9,15 @@ import os
 import sys
 from datetime import datetime
 import logging
+import argparse
 
-home = os.getenv('HOME')
-
-with open('./examples/armory.yml', 'r') as file:
-    ciparams = yaml.safe_load(file)
-
-repository = ciparams["config"]["repository"]
-SUPERCI_LOGDIR=home+'/.superci/'
-if not os.path.exists(SUPERCI_LOGDIR):
-    logging.info(f"Creating log directory: {SUPERCI_LOGDIR}")
-    os.makedirs(SUPERCI_LOGDIR)
-
-# Set Debug (and higher) messages to file
-logging.basicConfig(filename=f"{SUPERCI_LOGDIR}/superci-github.log",
-                    filemode='a',
-                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.DEBUG)
-
-# Set info messages to console
-# define a Handler which writes INFO messages or higher to the sys.stderr
-console = logging.StreamHandler()
-console.setLevel(logging.INFO)
-formatter = logging.Formatter('%(name)s %(levelname)s %(message)s')
-console.setFormatter(formatter)
-logging.getLogger().addHandler(console)
-
-# For org repositories, be aware, this can happen
-#   github.GithubException.GithubException: 
-#   403 {"message": "`{Organization}` forbids access via a personal access token (classic). 
-#   Please use a GitHub App, OAuth App, or a personal access token with fine-grained permissions.", 
-#   "documentation_url": "https://docs.github.com/rest/repos/repos#get-a-repository"}
-#
+logdir=os.getenv('HOME')+'/.superci/logs'
 
 def check_if_commit_is_tested(repository,commitsha):
     """
     Checks the history (if any) to see if the commit has already been tested
     """
-    runlog = f"{SUPERCI_LOGDIR}/{repository}/superci-log.yaml"
+    runlog = f"{logdir}/{repository}/superci-log.yaml"
 
     if os.path.isfile(runlog): # check if file exists
         with open(f'{runlog}', 'r') as file:
@@ -182,25 +152,76 @@ def pr_workflow(params,repo):
                     workspace_dir = create_workspace(params, build_id)
                     repo = clone_repository(repo_url,workspace_dir,branch,last_commit.sha)
                     batch_scripts = generate_batch_scripts(params, workspace_dir)
-                    print(batch_scripts)
+                    if len(batch_scripts) > 1:
+                        logging.warning("Job dependencies are not currently set up between build steps. Use at your own risk.")
+                    
 
+def parse_cli():
+    """
+    Parses command line options and returns args object
+    """
+    parser = argparse.ArgumentParser(description='Poll your github repository, check for builds and run them')
+    parser.add_argument('-c','--config', help='Fully qualified path to a superci configuration file.', default='./examples/demo.yml')
+    return parser.parse_args()
+
+def configure_logging():
+    """
+    Sets up the directories for superci logging and configures the logging module accordingly.
+    Logs will always go to ${HOME}/.superci/logs
+    """
+
+
+    if not os.path.exists(logdir):
+        os.makedirs(logdir)
+
+    # Set Debug (and higher) messages to file
+    logging.basicConfig(filename=f"{logdir}/superci-github.log",
+                        filemode='a',
+                        format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                        datefmt='%H:%M:%S',
+                        level=logging.DEBUG)
+
+    # Set info messages to console
+    # define a Handler which writes INFO messages or higher to the sys.stderr
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(name)s %(levelname)s %(message)s')
+    console.setFormatter(formatter)
+    logging.getLogger().addHandler(console)
+
+        
 
 
 # main below
 # ////////////////// #
+def main():
 
-repository_full_name = ciparams['config']['repository']
-# Get the authenication token
-f = open(ciparams['config']['github_access_token_path'], "r")
-token = f.readline().strip()
-auth = Auth.Token(token)
-f.close()
+    configure_logging()
 
-# Public Web Github
-g = Github(auth=auth)
-repo = g.get_repo(repository_full_name)
+    args = parse_cli()
 
-pr_workflow(ciparams,repo)
+    logging.info(f'Loading configuration file {args.config}')
+    with open(args.config, 'r') as file:
+        ciparams = yaml.safe_load(file)
+
+    
+
+    # Get the Github personal authenication token
+    f = open(ciparams['config']['github_access_token_path'], "r")
+    token = f.readline().strip()
+    auth = Auth.Token(token)
+    f.close()
+
+    # Create a repository object
+    repository = ciparams["config"]["repository"]
+    g = Github(auth=auth)
+    repo = g.get_repo(repository)
+    
+    # Kick off the PR workflow
+    pr_workflow(ciparams,repo)
+
+if __name__ == '__main__':
+    main()
 
 
 
