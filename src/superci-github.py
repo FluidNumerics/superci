@@ -10,6 +10,7 @@ import sys
 from datetime import datetime
 import logging
 import argparse
+import json
 
 logdir=os.getenv('HOME')+'/.superci/logs'
 
@@ -67,7 +68,7 @@ def generate_batch_scripts(params, workspace_dir):
     """
 
     stepid = 0
-    batch_scripts = []
+    build_steps = []
     for step in params['steps']:
         sbatch_opts = step['sbatch_options']
         modules = step['modules']
@@ -104,12 +105,58 @@ def generate_batch_scripts(params, workspace_dir):
         with open(f"{workspace_dir}/step-{stepid:03}.sh","w+") as f:
             f.writelines(script)
 
-        batch_scripts.append(f"{workspace_dir}/step-{stepid:03}.sh")
+        build_steps.append({"name":step['name'],"script":f"{workspace_dir}/step-{stepid:03}.sh"})
         stepid+=1
 
-    return batch_scripts
+    return build_steps
 
-def pr_workflow(params,repo):
+def run_build_steps(build_steps):
+    """
+    Runs the list of build steps and returns a list of build step names paired to exit codes
+    """
+
+    if len(build_steps) > 1:
+        logging.warning("Job dependencies are not currently set up between build steps. Use at your own risk.")
+
+    # [TO DO] : Check if `sbatch` command exists. Otherwise, run commands locally
+    launcher = "/usr/bin/sbatch --wait"
+
+    step_results = []
+    aggregate_status = 0
+    for step in build_steps:
+        batch_script = step['script']
+        name = step['name']
+        logging.info(f"Running job build step : {name}")
+        logging.info(f"{launcher} {batch_script}")
+        proc = subprocess.run(shlex.split(f"{launcher} {batch_script}"), 
+                capture_output=True)
+        step_results.append({'name':name,'exit_code':proc.returncode})
+        aggregate_status+=abs(proc.returncode)
+        if proc.returncode != 0:
+            logging.warning(f"Job build step failed : {name}")
+            break
+
+    return step_results, aggregate_status
+
+def update_commit_status(repository,commitsha,token,state,description):
+    """
+    Updates the
+    repository - in the format of {owner}/{repository}
+    state - must be one of error, failure, pending, success
+    """
+    import requests
+
+
+    headers = {'Accept': 'application/vnd.github+json',
+               'Authorization': f'Bearer {token}',
+               'X-GitHub-Api-Version': '2022-11-28'}
+    payload = {"state":state,"target_url":"https://example.com/build/status","description":description,"context":"continuous-integration/superci"}
+
+    url = f"https://api.github.com/repos/{repository}/statuses/{commitsha}"
+    r = requests.post(url, data=json.dumps(payload), headers=headers)
+    return r
+
+def pr_workflow(params,repo,token):
     """
     Checks all open pull requests in your repository that are targeting params.config.branch
     For each pull request that matches this criteria, we pull information on the last commit
@@ -132,28 +179,45 @@ def pr_workflow(params,repo):
     current_datetime = datetime.now()
     
     for p in pulls:
+
         branch = p.head.ref
         last_commit = p.get_commits()[p.commits - 1]
         commit_date = last_commit.commit.committer.date
-        
-        # check if this commit has been tested
-        #test_info = {"pr_number": p.number, "commit": last_commit}
         commit_is_tested = check_if_commit_is_tested(params['config']['repository'],last_commit)
 
         if not commit_is_tested:
             for c in p.get_issue_comments():
-                #print(c.created_at)
                 if c.body == "/superci" and c.created_at > commit_date:
-                    logging.info(f"Preparing to test git sha: {last_commit.sha}")
 
-                    # build id is set to the first 8 characters of the commit sha
+                    # [TO DO] : Get author of comment and compare with repository owners/admins
+
+                    logging.info(f"Preparing to test git sha: {last_commit.sha}")
                     build_id = last_commit.sha[0:7]
                     logging.info(f"build id : {build_id}")
+
+                    # Set the commit status to pending
+                    resp = update_commit_status(params['config']['repository'],
+                            last_commit.sha,token,'pending','Waiting for tests to complete')
+                    logger.info(resp.text)
+
                     workspace_dir = create_workspace(params, build_id)
                     repo = clone_repository(repo_url,workspace_dir,branch,last_commit.sha)
-                    batch_scripts = generate_batch_scripts(params, workspace_dir)
-                    if len(batch_scripts) > 1:
-                        logging.warning("Job dependencies are not currently set up between build steps. Use at your own risk.")
+                    build_steps = generate_batch_scripts(params, workspace_dir)
+                    step_results, aggregate_status = run_build_steps(build_steps)
+
+                    if aggregate_status != 0:
+                        logging.warning("Build/Test workflow failure detected")
+                        # Set the commit status to failure
+                        resp = update_commit_status(params['config']['repository'],
+                                last_commit.sha,token,'failure','One or more of the build steps failed')
+                        logger.info(resp.text)
+                    else:
+                        resp = update_commit_status(params['config']['repository'],
+                                last_commit.sha,token,'success','Tests successful')
+                        logger.info(resp.text)
+
+                    #[TO DO] : write_run_log(params["config"]["repository"],branch,last_commit,current_datetime,aggregate_status)
+
                     
 
 def parse_cli():
@@ -218,7 +282,7 @@ def main():
     repo = g.get_repo(repository)
     
     # Kick off the PR workflow
-    pr_workflow(ciparams,repo)
+    pr_workflow(ciparams,repo,token)
 
 if __name__ == '__main__':
     main()

@@ -19,5 +19,5 @@ config:
   repository: "fluidnumerics/self"
   trigger: "pull_request"
   branch: "main"
-  github_access_token_path: "/home/joe/apps/superci/github_pat"
+  github_access_token_path: "/home/joe/superci/github_pat"
   workspace_root: "/home/joe/.superci/workspace"
