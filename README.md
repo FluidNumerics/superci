@@ -42,9 +42,13 @@ conda create -n superci python=3.9
 conda activate superci
 pip install -r requirements.txt
 ```
-3. Edit the `examples/armory.yml` file. Change the `config.github_access_token_path` to the path on your system that you have save your Github Private Access Token to. Change the `config.workspace_root` to a path on your system where you have read and write access to.
+3. Edit the `examples/armory.yml` file. Change the `config.github_access_token_path` to the path on your system that you have save your Github Private Access Token to. Change the `config.workspace_root` to a path on your system where you have read and write access to. Change the `config.repository` to a repository that you have access to. Change the `config.branch` to a base branch where you would like to require tests to run before merging.
 
-4. Try the demo
+4. On your repository, create a branch and open a pull request to the base branch specified in `config.branch`
+
+5. Add a comment that just says `/superci`
+
+5. Try the demo
 ```
 python src/superci-github.py
 ```
@@ -52,12 +56,19 @@ python src/superci-github.py
 5. If it breaks, you have some ideas, or you hate me, open an issue
 
 
+## SuperCI schema
+Like other CI systems, superci will ingest a markdown file (here, we use yaml) that will be used to execute a build/test workflow for your application, based on parameters provided in this file. A rough draft of the schema is given below.
 
-
-## Git Remote Integrations
-
-### Github
-
+* `steps` - List(object) - A list of steps that will each be converted to a batch job
+* `step.name` - string - A human readable name for the step
+* `step.sbatch_options` - List(string) - options to send to [`sbatch`]() for a given step.
+* `step.modules` - List(string) - list of modules that will be loaded with `module load`. Leave empty if you don't use modules.
+* `step.env` - Object - Set of key:value pairs that are used to set environment variables in your job. Keep in mind `WORKSPACE` is an environment variable defined for you that references the temporary working directory for your build.
+* `step.commands` - List(string) - A list of commands that you want to run for this build step
+* `config.repository` - string - The repository hosted on github (in `{owner}/{repo}` format) that you want to test
+* `config.branch` - string - The head branch that requires testing before merging into with a pull request
+* `config.github_access_token_path` - string - The full path on your HPC cluster where your github access token is located
+* `config.workspace_root` - string - The directory where superci logs are written and where all of your build/test temporary working directories are created.
 
 
 
