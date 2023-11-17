@@ -14,14 +14,14 @@ import json
 
 logdir=os.getenv('HOME')+'/.superci/logs'
 
-def write_run_log(repository, branch, commit, current_datetime, aggregate_status):
+def write_run_log(repository, branch, commit, current_datetime, aggregate_status, logfiles):
     """
     Writes the status of the run for this repository, branch, commit to the run log
     """
 
     runlog = f"{logdir}/{repository}/superci-log.yaml"
     logdata = []
-    newdata = {"branch":branch, "commit":commit, "datetime": current_datetime, "aggregate_status":aggregate_status}
+    newdata = {"branch":branch, "commit":commit, "datetime": current_datetime, "aggregate_status":aggregate_status, "logfiles": logfiles}
 
     if os.path.isfile(runlog): # check if file exists
         with open(f'{runlog}', 'r') as file:
@@ -98,6 +98,7 @@ def generate_batch_scripts(params, workspace_dir):
 
     stepid = 0
     build_steps = []
+    logfiles = []
     for step in build_step_config['steps']:
         sbatch_opts = step['sbatch_options']
         modules = step['modules']
@@ -110,8 +111,8 @@ def generate_batch_scripts(params, workspace_dir):
             for opt in sbatch_opts:
                 script+=f"#SBATCH {opt}\n"
         # Add stderr and stdout options
-        script+=f"#SBATCH -o {workspace_dir}/step-{stepid:03}.out\n"
-        script+=f"#SBATCH -e {workspace_dir}/step-{stepid:03}.err\n"
+        script+=f"#SBATCH -o {workspace_dir}/step-{stepid:03}.log\n"
+        script+=f"#SBATCH -e {workspace_dir}/step-{stepid:03}.log\n"
 
         script+= "\n"
         # Load modules
@@ -135,9 +136,10 @@ def generate_batch_scripts(params, workspace_dir):
             f.writelines(script)
 
         build_steps.append({"name":step['name'],"script":f"{workspace_dir}/step-{stepid:03}.sh"})
+        logfiles.append(f"{workspace_dir}/step-{stepid:03}.log")
         stepid+=1
 
-    return build_steps
+    return build_steps, logfiles
 
 def run_build_steps(build_steps):
     """
@@ -242,7 +244,7 @@ def pr_workflow(params,repo,token):
 
                     # Digest the repositories build/test configuration file and create
                     # batch scripts
-                    build_steps = generate_batch_scripts(params, workspace_dir)
+                    build_steps, logfiles = generate_batch_scripts(params, workspace_dir)
 
                     # if build_steps is None, then the build/test configuration file was
                     # not found and we must fail the build
@@ -265,7 +267,7 @@ def pr_workflow(params,repo,token):
                                     last_commit.sha,token,'success','Tests successful')
                             logging.info(resp.text)
 
-                    runlog = write_run_log(params['config']['repository'], branch, last_commit.sha, current_datetime, aggregate_status)
+                    runlog = write_run_log(params['config']['repository'], branch, last_commit.sha, current_datetime, logfiles, aggregate_status)
 
                     
 
