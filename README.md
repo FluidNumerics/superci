@@ -94,5 +94,6 @@ Log files for `superci` are written under `${HOME}/.superci/logs`
 * `grep TODO src/*` to see a list of to-do items 
 * There's tons of hard-coded stuff at the moment - this repository is currently set up to provide proof of concept in order to promote discussion and collaboration with others before going too far.
 * We assume `sbatch` is installed in `/usr/bin/sbatch`. We also need a fallback in case `sbatch` is not available (e.g. run locally)
+* Commit statuses are pushed, which updates information on a pull request. [Checks](https://docs.github.com/en/rest/checks?apiVersion=2022-11-28) are not created, however, Checks would provide a way to push batch script stdout/stderr back to Github.
 * Currently, we do not check for a list of repository owners/admins to verify authorized users who wrote the `/superci` comment. This is in the works!
 * We can only run tests with a single step. More sophisticated tracking of job success and failure is necessary for jobs with dependencies to support multi-step builds.
