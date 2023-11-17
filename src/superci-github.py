@@ -169,7 +169,7 @@ def run_build_steps(build_steps):
 
     return step_results, aggregate_status
 
-def update_commit_status(repository,commitsha,token,state,description):
+def update_commit_status(repository,commitsha,token,state,description,context):
     """
     Updates the
     repository - in the format of {owner}/{repository}
@@ -181,7 +181,7 @@ def update_commit_status(repository,commitsha,token,state,description):
     headers = {'Accept': 'application/vnd.github+json',
                'Authorization': f'Bearer {token}',
                'X-GitHub-Api-Version': '2022-11-28'}
-    payload = {"state":state,"target_url":"https://example.com/build/status","description":description,"context":"continuous-integration/superci"}
+    payload = {"state":state,"target_url":"https://example.com/build/status","description":description,"context":context}
 
     url = f"https://api.github.com/repos/{repository}/statuses/{commitsha}"
     r = requests.post(url, data=json.dumps(payload), headers=headers)
@@ -234,7 +234,7 @@ def pr_workflow(params,repo,token):
 
                     # Set the commit status to pending
                     resp = update_commit_status(params['config']['repository'],
-                            last_commit.sha,token,'pending','Waiting for tests to complete')
+                            last_commit.sha,token,'pending','Waiting for tests to complete',params['config']['context'])
                     logging.info(resp.text)
 
                     # Create a temporary workspace directory and clone the repository 
@@ -250,7 +250,7 @@ def pr_workflow(params,repo,token):
                     # not found and we must fail the build
                     if build_steps is None:
                         resp = update_commit_status(params['config']['repository'],
-                                last_commit.sha,token,'failure','One or more of the build steps failed')
+                                last_commit.sha,token,'failure','One or more of the build steps failed',params['config']['context'])
                         aggregate_status = -1
                     else: 
 
@@ -260,14 +260,14 @@ def pr_workflow(params,repo,token):
                             logging.warning("Build/Test workflow failure detected")
                             # Set the commit status to failure
                             resp = update_commit_status(params['config']['repository'],
-                                    last_commit.sha,token,'failure','One or more of the build steps failed')
+                                    last_commit.sha,token,'failure','One or more of the build steps failed',params['config']['context'])
                             logging.info(resp.text)
                         else:
                             resp = update_commit_status(params['config']['repository'],
-                                    last_commit.sha,token,'success','Tests successful')
+                                    last_commit.sha,token,'success','Tests successful',params['config']['context'])
                             logging.info(resp.text)
 
-                    runlog = write_run_log(params['config']['repository'], branch, last_commit.sha, current_datetime, logfiles, aggregate_status)
+                    runlog = write_run_log(params['config']['repository'], branch, last_commit.sha, current_datetime, aggregate_status, logfiles )
 
                     
 

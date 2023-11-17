@@ -63,6 +63,8 @@ python src/superci-github.py
 
 7. If it breaks or you have some ideas [open an issue](https://github.com/FluidNumerics/superci/issues/new)
 
+## Deploying SuperCI in practice
+In practice, you likely want to "set and forget" for your CI system. On HPC systems equipped with the Slurm workload manager, you can use [`scrontab`](https://slurm.schedmd.com/scrontab.html) to configure a schedule to launch recurring batch jobs. You can leverage `scrontab` to regularly launch the `superci-github.py` application. This job itself does not require a lot of resources (one cpu only and less than 1G of RAM, likely).
 
 ## SuperCI schema
 Like other CI systems, superci will ingest a markdown file (here, we use yaml) that will be used to execute a build/test workflow for your application, based on parameters provided in this file. With SuperCI, there are two yaml files that are used to configure runs. The first is a configuration file that you store on the login node of an HPC cluster (with a slurm job scheduler) where the `superci-github.py` program is run; this is called the "SuperCI service configuration". The second is the configuration file included in your application's github repository; this is called your applications "build/test configuration".
@@ -75,6 +77,7 @@ A rough draft of the schemas are given below
 * `config.github_access_token_path` - string - The full path on your HPC cluster where your github access token is located
 * `config.workspace_root` - string - The directory where where all of your build/test temporary working directories are created.
 * `config.superci_yaml` - string - Path, relative to your application repository's root directory where your build/test configuration is stored.
+* `config.context` - string - The context label to use for the build. Often, this is used to indicate the platform or type of test you are running
 
 ### Build/Test configuration
 * `steps` - List(object) - A list of steps that will each be converted to a batch job

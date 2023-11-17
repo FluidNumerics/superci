@@ -5,3 +5,4 @@ config:
   github_access_token_path: "/home/joe/superci/github_pat"
   workspace_root: "/home/joe/.superci/workspace"
   superci_yaml: "superci.yml"
+  context: "noether-ubuntu2204-rocm5.7-gfx90a"
