@@ -14,6 +14,26 @@ import json
 
 logdir=os.getenv('HOME')+'/.superci/logs'
 
+def write_run_log(repository, branch, commit, current_datetime, aggregate_status):
+    """
+    Writes the status of the run for this repository, branch, commit to the run log
+    """
+
+    runlog = f"{logdir}/{repository}/superci-log.yaml"
+    logdata = []
+    newdata = {"branch":branch, "commit":commit, "datetime": current_datetime, "aggregate_status":aggregate_status}
+
+    if os.path.isfile(runlog): # check if file exists
+        with open(f'{runlog}', 'r') as file:
+            logdata = yaml.safe_load(file)
+
+    logdata.append(newdata)
+
+    with open(f'{runlog}', 'w') as file:
+        yaml.dump(logdata,file)
+
+    return runlog
+
 def check_if_commit_is_tested(repository,commitsha):
     """
     Checks the history (if any) to see if the commit has already been tested
@@ -67,9 +87,18 @@ def generate_batch_scripts(params, workspace_dir):
     Digests the input yaml steps and creates batch scripts for each step
     """
 
+    build_step_file = workspace_dir+"/"+params["config"]["superci_yaml"]
+    if os.path.isfile(build_step_file):
+        logging.info(f"Loading {build_step_file}")
+        with open(build_step_file, 'r') as file:
+            build_step_config = yaml.safe_load(file)
+    else:
+        logging.error(f"{build_step_config} not found!")
+        return None
+
     stepid = 0
     build_steps = []
-    for step in params['steps']:
+    for step in build_step_config['steps']:
         sbatch_opts = step['sbatch_options']
         modules = step['modules']
         env = step['env']
@@ -156,6 +185,8 @@ def update_commit_status(repository,commitsha,token,state,description):
     r = requests.post(url, data=json.dumps(payload), headers=headers)
     return r
 
+
+
 def pr_workflow(params,repo,token):
     """
     Checks all open pull requests in your repository that are targeting params.config.branch
@@ -177,15 +208,19 @@ def pr_workflow(params,repo,token):
     repo_url = f'https://github.com/{params["config"]["repository"]}'
     pulls = repo.get_pulls(state='open', sort='created', base=params['config']['branch'])
     current_datetime = datetime.now()
+
     
     for p in pulls:
 
         branch = p.head.ref
         last_commit = p.get_commits()[p.commits - 1]
         commit_date = last_commit.commit.committer.date
-        commit_is_tested = check_if_commit_is_tested(params['config']['repository'],last_commit)
+        commit_is_tested = check_if_commit_is_tested(params['config']['repository'],last_commit.sha)
 
-        if not commit_is_tested:
+        if commit_is_tested:
+            logging.info(f"Commit {last_commit.sha[0:7]} has already been tested. Skipping.")
+
+        else:
             for c in p.get_issue_comments():
                 if c.body == "/superci" and c.created_at > commit_date:
 
@@ -198,25 +233,39 @@ def pr_workflow(params,repo,token):
                     # Set the commit status to pending
                     resp = update_commit_status(params['config']['repository'],
                             last_commit.sha,token,'pending','Waiting for tests to complete')
-                    logger.info(resp.text)
+                    logging.info(resp.text)
 
+                    # Create a temporary workspace directory and clone the repository 
+                    # at the latest commit to this temporary directory
                     workspace_dir = create_workspace(params, build_id)
                     repo = clone_repository(repo_url,workspace_dir,branch,last_commit.sha)
-                    build_steps = generate_batch_scripts(params, workspace_dir)
-                    step_results, aggregate_status = run_build_steps(build_steps)
 
-                    if aggregate_status != 0:
-                        logging.warning("Build/Test workflow failure detected")
-                        # Set the commit status to failure
+                    # Digest the repositories build/test configuration file and create
+                    # batch scripts
+                    build_steps = generate_batch_scripts(params, workspace_dir)
+
+                    # if build_steps is None, then the build/test configuration file was
+                    # not found and we must fail the build
+                    if build_steps is None:
                         resp = update_commit_status(params['config']['repository'],
                                 last_commit.sha,token,'failure','One or more of the build steps failed')
-                        logger.info(resp.text)
-                    else:
-                        resp = update_commit_status(params['config']['repository'],
-                                last_commit.sha,token,'success','Tests successful')
-                        logger.info(resp.text)
+                        aggregate_status = -1
+                    else: 
 
-                    #[TO DO] : write_run_log(params["config"]["repository"],branch,last_commit,current_datetime,aggregate_status)
+                        step_results, aggregate_status = run_build_steps(build_steps)
+
+                        if aggregate_status != 0:
+                            logging.warning("Build/Test workflow failure detected")
+                            # Set the commit status to failure
+                            resp = update_commit_status(params['config']['repository'],
+                                    last_commit.sha,token,'failure','One or more of the build steps failed')
+                            logging.info(resp.text)
+                        else:
+                            resp = update_commit_status(params['config']['repository'],
+                                    last_commit.sha,token,'success','Tests successful')
+                            logging.info(resp.text)
+
+                    runlog = write_run_log(params['config']['repository'], branch, last_commit.sha, current_datetime, aggregate_status)
 
                     
 
@@ -268,7 +317,10 @@ def main():
     with open(args.config, 'r') as file:
         ciparams = yaml.safe_load(file)
 
-    
+    repository = ciparams['config']['repository']
+    runlogdir = f"{logdir}/{repository}"
+    if not os.path.exists(runlogdir):
+        os.makedirs(runlogdir)
 
     # Get the Github personal authenication token
     f = open(ciparams['config']['github_access_token_path'], "r")

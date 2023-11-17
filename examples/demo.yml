@@ -1,23 +1,7 @@
-steps:
-  - name : "Build, Test, and get coverage on Noether"
-    sbatch_options: 
-      - "--ntasks=1"
-      - "--time=5:00"
-    modules:
-    env:
-      BUILD_DIR: ${WORKSPACE}/build
-      PREFIX: ${WORKSPACE}/opt/self
-      OUTDIR: ${WORKSPACE}/local
-      BUILD_TYPE: "Coverage"
-    commands: 
-      - |
-        hostname
-        env
-        sleep 10
-
 config:
   repository: "fluidnumerics/self"
   trigger: "pull_request"
   branch: "main"
   github_access_token_path: "/home/joe/superci/github_pat"
   workspace_root: "/home/joe/.superci/workspace"
+  superci_yaml: "superci.yml"
