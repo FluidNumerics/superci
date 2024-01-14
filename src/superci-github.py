@@ -11,6 +11,7 @@ from datetime import datetime
 import logging
 import argparse
 import json
+import shutil
 
 logdir=os.getenv('HOME')+'/.superci/logs'
 
@@ -82,7 +83,7 @@ def create_workspace(params, build_id):
     
     return workspace_dir
 
-def generate_batch_scripts(params, workspace_dir):
+def generate_batch_scripts(params, workspace_dir, commit_sha, branch_name, pr_number):
     """
     Digests the input yaml steps and creates batch scripts for each step
     """
@@ -93,7 +94,7 @@ def generate_batch_scripts(params, workspace_dir):
         with open(build_step_file, 'r') as file:
             build_step_config = yaml.safe_load(file)
     else:
-        logging.error(f"{build_step_config} not found!")
+        logging.error(f"{build_step_file} not found!")
         return None
 
     stepid = 0
@@ -114,6 +115,10 @@ def generate_batch_scripts(params, workspace_dir):
         script+=f"#SBATCH -o {workspace_dir}/step-{stepid:03}.log\n"
         script+=f"#SBATCH -e {workspace_dir}/step-{stepid:03}.log\n"
 
+        if "prerequisites" in step.keys():
+            for p in step['prerequisites']:
+                script+=f"\n{p}\n"
+
         script+= "\n"
         # Load modules
         if modules:
@@ -124,6 +129,13 @@ def generate_batch_scripts(params, workspace_dir):
         script+= "\n"
         # Set environment variables
         script+=f"export WORKSPACE={workspace_dir}\n"
+        script+=f"export COMMIT_SHA={commit_sha}\n"
+        script+=f"export BRANCH_NAME={branch_name}\n"
+        script+=f"export PR_NUMBER={pr_number}\n"
+        if 'codecov_token' in params['config'].keys():
+            codecov_token = params['config']['codecov_token']
+            script+=f"export CODECOV_TOKEN={codecov_token}\n"
+
         for var in env.keys():
             script+=f"export {var}={env[var]}\n"
 
@@ -141,7 +153,7 @@ def generate_batch_scripts(params, workspace_dir):
 
     return build_steps, logfiles
 
-def run_build_steps(build_steps):
+def run_build_steps(build_steps, params):
     """
     Runs the list of build steps and returns a list of build step names paired to exit codes
     """
@@ -149,8 +161,17 @@ def run_build_steps(build_steps):
     if len(build_steps) > 1:
         logging.warning("Job dependencies are not currently set up between build steps. Use at your own risk.")
 
-    # [TO DO] : Check if `sbatch` command exists. Otherwise, run commands locally
-    launcher = "/usr/bin/sbatch --wait"
+    if 'sbatch' in params['config'].keys():
+        sbatch = params['config']['sbatch'].strip()
+    else:
+        sbatch = "/usr/bin/sbatch"
+
+    if os.path.isfile(sbatch):
+        launcher = f"{sbatch} --wait"
+    else:
+        logging.error(f"sbatch not found in {sbatch}. Quitting")
+        sys.exit(1)
+
 
     step_results = []
     aggregate_status = 0
@@ -169,7 +190,7 @@ def run_build_steps(build_steps):
 
     return step_results, aggregate_status
 
-def update_commit_status(repository,commitsha,token,state,description,context):
+def update_commit_status(repository,commitsha,token,state,description,context,target_url):
     """
     Updates the
     repository - in the format of {owner}/{repository}
@@ -181,7 +202,7 @@ def update_commit_status(repository,commitsha,token,state,description,context):
     headers = {'Accept': 'application/vnd.github+json',
                'Authorization': f'Bearer {token}',
                'X-GitHub-Api-Version': '2022-11-28'}
-    payload = {"state":state,"target_url":"https://example.com/build/status","description":description,"context":context}
+    payload = {"state":state,"target_url":target_url,"description":description,"context":context}
 
     url = f"https://api.github.com/repos/{repository}/statuses/{commitsha}"
     r = requests.post(url, data=json.dumps(payload), headers=headers)
@@ -218,56 +239,103 @@ def pr_workflow(params,repo,token):
         last_commit = p.get_commits()[p.commits - 1]
         commit_date = last_commit.commit.committer.date
         commit_is_tested = check_if_commit_is_tested(params['config']['repository'],last_commit.sha)
+        commit_is_tested = False
 
         if commit_is_tested:
             logging.info(f"Commit {last_commit.sha[0:7]} has already been tested. Skipping.")
 
         else:
-            for c in p.get_issue_comments():
-                if c.body == "/superci" and c.created_at > commit_date:
 
-                    # [TO DO] : Get author of comment and compare with repository owners/admins
+            # // Check for authorized user // #
+            do_the_build = False
+            if p.user.login in params['config']['github_authorized_users']:
+            # If the pull request author is an authorized user then we
+            # do not need to look for the "/superci" comment, and we 
+            # automatically build the latest commit.
+                do_the_build = True
 
-                    logging.info(f"Preparing to test git sha: {last_commit.sha}")
-                    build_id = last_commit.sha[0:7]
-                    logging.info(f"build id : {build_id}")
+            else:
+            # If the pull request author is not an authorized user,
+            # Pull the comments to look for "/superci". If the
+            # comment is created after the last commit date, then we 
+            # will authorize the build
+                for c in p.get_issue_comments():
+                    if c.body == "/superci" and c.created_at > commit_date and c.user.login in params['config']['github_authorized_users']:
+                        do_the_build = True
 
-                    # Set the commit status to pending
+            # // End check for authorized user // #
+
+            do_the_build = True
+
+            if do_the_build:
+
+                logging.info(f"Preparing to test git sha: {last_commit.sha}")
+                build_id = last_commit.sha[0:7]
+                logging.info(f"build id : {build_id}")
+
+                if params['config']['target_url'] == '':
+                    target_url = "https://example.com/build/status"
+                else:
+                    target_url = params['config']['target_url']+f'/{build_id}'
+
+                # Create the public log directory
+                public_log_dir = os.path.join(params['config']['public_root'],build_id)
+                if not os.path.exists(public_log_dir):
+                    os.mkdir(public_log_dir)
+
+                # Set the commit status to pending
+                resp = update_commit_status(params['config']['repository'],
+                        last_commit.sha,token,'pending','Waiting for tests to complete',params['config']['context'],
+                        target_url)
+                logging.info(resp.text)
+
+                # Create a temporary workspace directory and clone the repository 
+                # at the latest commit to this temporary directory
+                workspace_dir = create_workspace(params, build_id)
+                repo = clone_repository(repo_url,workspace_dir,branch,last_commit.sha)
+
+                # Digest the repositories build/test configuration file and create
+                # batch scripts
+                build_steps, logfiles = generate_batch_scripts(params, workspace_dir, last_commit.sha, branch, p.number)
+
+                # write the build step map to the public directory
+                with open(f'{public_log_dir}/build_steps.json', 'w') as f:
+                    json.dump(build_steps, f)
+
+                # copy the build step files to the public directory
+                for b in build_steps:
+                    shutil.copy(b['script'], public_log_dir)
+
+                # if build_steps is None, then the build/test configuration file was
+                # not found and we must fail the build
+                if build_steps is None:
                     resp = update_commit_status(params['config']['repository'],
-                            last_commit.sha,token,'pending','Waiting for tests to complete',params['config']['context'])
-                    logging.info(resp.text)
+                            last_commit.sha,token,'failure','One or more of the build steps failed',params['config']['context'],
+                            target_url)
+                    aggregate_status = -1
+                else: 
 
-                    # Create a temporary workspace directory and clone the repository 
-                    # at the latest commit to this temporary directory
-                    workspace_dir = create_workspace(params, build_id)
-                    repo = clone_repository(repo_url,workspace_dir,branch,last_commit.sha)
+                    step_results, aggregate_status = run_build_steps(build_steps, params)
 
-                    # Digest the repositories build/test configuration file and create
-                    # batch scripts
-                    build_steps, logfiles = generate_batch_scripts(params, workspace_dir)
+                    # copy the logfiles to the public log directory
+                    for f in logfiles:
+                        if os.path.isfile(f):
+                            shutil.copy(f, public_log_dir)
 
-                    # if build_steps is None, then the build/test configuration file was
-                    # not found and we must fail the build
-                    if build_steps is None:
+                    if aggregate_status != 0:
+                        logging.warning("Build/Test workflow failure detected")
+                        # Set the commit status to failure
                         resp = update_commit_status(params['config']['repository'],
-                                last_commit.sha,token,'failure','One or more of the build steps failed',params['config']['context'])
-                        aggregate_status = -1
-                    else: 
+                                last_commit.sha,token,'failure','One or more of the build steps failed',params['config']['context'],
+                                target_url)
+                        logging.info(resp.text)
+                    else:
+                        resp = update_commit_status(params['config']['repository'],
+                                last_commit.sha,token,'success','Tests successful',params['config']['context'],
+                                target_url)
+                        logging.info(resp.text)
 
-                        step_results, aggregate_status = run_build_steps(build_steps)
-
-                        if aggregate_status != 0:
-                            logging.warning("Build/Test workflow failure detected")
-                            # Set the commit status to failure
-                            resp = update_commit_status(params['config']['repository'],
-                                    last_commit.sha,token,'failure','One or more of the build steps failed',params['config']['context'])
-                            logging.info(resp.text)
-                        else:
-                            resp = update_commit_status(params['config']['repository'],
-                                    last_commit.sha,token,'success','Tests successful',params['config']['context'])
-                            logging.info(resp.text)
-
-                    runlog = write_run_log(params['config']['repository'], branch, last_commit.sha, current_datetime, aggregate_status, logfiles )
+                runlog = write_run_log(params['config']['repository'], branch, last_commit.sha, current_datetime, aggregate_status, logfiles )
 
                     
 

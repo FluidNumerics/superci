@@ -66,6 +66,15 @@ python src/superci-github.py
 ## Deploying SuperCI in practice
 In practice, you likely want to "set and forget" for your CI system. On HPC systems equipped with the Slurm workload manager, you can use [`scrontab`](https://slurm.schedmd.com/scrontab.html) to configure a schedule to launch recurring batch jobs. You can leverage `scrontab` to regularly launch the `superci-github.py` application. This job itself does not require a lot of resources (one cpu only and less than 1G of RAM, likely).
 
+## Environment variables
+SuperCI defines a few environment variables for you that may be useful when writing your build scripts
+
+* `WORKSPACE` - The full path to the unique workspace for your application's build on the system hosting superci.
+* `COMMIT_SHA` - The full git commit sha that is being tested during the build.
+* `BRANCH_NAME` - The git branch that is being tested during the build. This is the source branch for the associated pull request.
+* `PR_NUMBER` - The pull request number associated with the build.
+* `CODECOV_TOKEN` - If the `config.codecov_token` variable is defined, the `CODECOV_TOKEN` is set to this configuration value. This is useful if you want to upload coverage reports to codecov.
+
 ## SuperCI schema
 Like other CI systems, superci will ingest a markdown file (here, we use yaml) that will be used to execute a build/test workflow for your application, based on parameters provided in this file. With SuperCI, there are two yaml files that are used to configure runs. The first is a configuration file that you store on the login node of an HPC cluster (with a slurm job scheduler) where the `superci-github.py` program is run; this is called the "SuperCI service configuration". The second is the configuration file included in your application's github repository; this is called your applications "build/test configuration".
  
@@ -78,6 +87,9 @@ A rough draft of the schemas are given below
 * `config.workspace_root` - string - The directory where where all of your build/test temporary working directories are created.
 * `config.superci_yaml` - string - Path, relative to your application repository's root directory where your build/test configuration is stored.
 * `config.context` - string - The context label to use for the build. Often, this is used to indicate the platform or type of test you are running
+* `config.github_authorized_users` - list(string) - List of Github usernames that are allowed to initiate builds using the `/superci` slash comment/command
+* `config.codecov_token` - string (optional) - A codecov token to use for any calls to `codecov-linux`. If not provided, the `CODECOV_TOKEN` environment variable is left unset
+* `config.target_url` - string (optional) - The url to display your build statuses. Defaults to `https://example.com/build/status`
 
 ### Build/Test configuration
 * `steps` - List(object) - A list of steps that will each be converted to a batch job
