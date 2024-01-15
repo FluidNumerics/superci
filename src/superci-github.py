@@ -239,7 +239,6 @@ def pr_workflow(params,repo,token):
         last_commit = p.get_commits()[p.commits - 1]
         commit_date = last_commit.commit.committer.date
         commit_is_tested = check_if_commit_is_tested(params['config']['repository'],last_commit.sha)
-        commit_is_tested = False
 
         if commit_is_tested:
             logging.info(f"Commit {last_commit.sha[0:7]} has already been tested. Skipping.")
@@ -264,8 +263,6 @@ def pr_workflow(params,repo,token):
                         do_the_build = True
 
             # // End check for authorized user // #
-
-            do_the_build = True
 
             if do_the_build:
 
