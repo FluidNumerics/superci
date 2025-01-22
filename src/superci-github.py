@@ -95,7 +95,7 @@ def generate_batch_scripts(params, workspace_dir, commit_sha, branch_name, pr_nu
             build_step_config = yaml.safe_load(file)
     else:
         logging.error(f"{build_step_file} not found!")
-        return None
+        return None, None
 
     stepid = 0
     build_steps = []
@@ -294,6 +294,14 @@ def pr_workflow(params,repo,token):
                 # Digest the repositories build/test configuration file and create
                 # batch scripts
                 build_steps, logfiles = generate_batch_scripts(params, workspace_dir, last_commit.sha, branch, p.number)
+
+                if build_steps is None:
+                    logging.info(f"Commit {last_commit.sha[0:7]} is missing configuration file.")
+                    resp = update_commit_status(params['config']['repository'],
+                            last_commit.sha,token,'failure','Superci configuration file is missing on this branch.',params['config']['context'],
+                            target_url)
+                    continue
+
 
                 # write the build step map to the public directory
                 with open(f'{public_log_dir}/build_steps.json', 'w') as f:
