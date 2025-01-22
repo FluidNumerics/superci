@@ -15,14 +15,14 @@ import shutil
 
 logdir=os.getenv('HOME')+'/.superci/logs'
 
-def write_run_log(repository, branch, commit, current_datetime, aggregate_status, logfiles):
+def write_run_log(repository, branch, commit, current_datetime, aggregate_status, logfiles, context):
     """
     Writes the status of the run for this repository, branch, commit to the run log
     """
 
     runlog = f"{logdir}/{repository}/superci-log.yaml"
     logdata = []
-    newdata = {"branch":branch, "commit":commit, "datetime": current_datetime, "aggregate_status":aggregate_status, "logfiles": logfiles}
+    newdata = {"branch":branch, "commit":commit, "datetime": current_datetime, "aggregate_status":aggregate_status, "logfiles": logfiles, "context": context}
 
     if os.path.isfile(runlog): # check if file exists
         with open(f'{runlog}', 'r') as file:
@@ -35,7 +35,7 @@ def write_run_log(repository, branch, commit, current_datetime, aggregate_status
 
     return runlog
 
-def check_if_commit_is_tested(repository,commitsha):
+def check_if_commit_is_tested(repository,commitsha,context):
     """
     Checks the history (if any) to see if the commit has already been tested
     """
@@ -47,7 +47,8 @@ def check_if_commit_is_tested(repository,commitsha):
 
         for l in logs: # loop over list of log entries
             if l['commit'] == commitsha:
-                return True
+                if l.get('context','') == context:
+                    return True
         
         # If we get to this point, the commitsha with any state has not been found and we ought to test it
         return False
@@ -238,7 +239,7 @@ def pr_workflow(params,repo,token):
         branch = p.head.ref
         last_commit = p.get_commits()[p.commits - 1]
         commit_date = last_commit.commit.committer.date
-        commit_is_tested = check_if_commit_is_tested(params['config']['repository'],last_commit.sha)
+        commit_is_tested = check_if_commit_is_tested(params['config']['repository'],last_commit.sha, params['config']['context'])
 
         if commit_is_tested:
             logging.info(f"Commit {last_commit.sha[0:7]} has already been tested. Skipping.")
@@ -340,7 +341,7 @@ def pr_workflow(params,repo,token):
                                 target_url)
                         logging.info(resp.text)
 
-                runlog = write_run_log(params['config']['repository'], branch, last_commit.sha, current_datetime, aggregate_status, logfiles )
+                runlog = write_run_log(params['config']['repository'], branch, last_commit.sha, current_datetime, aggregate_status, logfiles, params['config']['context'])
 
                     
 
